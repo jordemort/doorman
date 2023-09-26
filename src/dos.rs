@@ -1,3 +1,4 @@
+use anyhow::{anyhow, Context, Result};
 use handlebars::Handlebars;
 use rust_embed::RustEmbed;
 use serde::Serialize;
@@ -11,58 +12,43 @@ use yore::code_pages::CP437;
 struct Asset;
 
 pub struct Templates<'a> {
-  hbars: Handlebars<'a>,
+    hbars: Handlebars<'a>,
 }
 
 impl Templates<'_> {
-  pub fn new() -> Templates<'static> {
-      let mut hbars = Handlebars::new();
-      hbars.register_escape_fn(handlebars::no_escape);
-      return Templates { hbars: hbars };
-  }
+    pub fn new() -> Templates<'static> {
+        let mut hbars = Handlebars::new();
+        hbars.register_escape_fn(handlebars::no_escape);
 
-  pub fn render_string<T: Serialize>(&self, template: &String, vars: T) -> Result<String, String> {
-      return match self.hbars.render_template(template.as_str(), &vars) {
-          Ok(rendered) => Ok(rendered),
-          Err(e) => return Err(format!("Couldn't render template: {0}", e)),
-      };
-  }
+        return Templates { hbars };
+    }
 
-  pub fn render_template<T: Serialize>(&self, name: &str, vars: T) -> Result<String, String> {
-      let template = match Asset::get(format!("{0}.hbr", name).as_str()) {
-          Some(asset) => match String::from_utf8(asset.data.to_vec()) {
-              Ok(data) => data,
-              Err(e) => return Err(format!("Couldn't load template for {0}: {1}", name, e)),
-          },
-          None => return Err(format!("Couldn't find template for {0}", name)),
-      };
-      return self.render_string(&template, vars);
-  }
+    pub fn render_string<T: Serialize>(&self, template: &String, vars: T) -> Result<String> {
+        return Ok(self.hbars.render_template(template.as_str(), &vars)?);
+    }
 
-  pub fn write_dos<T: Serialize>(&self, name: &str, dir: &Path, vars: T) -> Result<(), String> {
-      let rendered = match self.render_template(name, vars) {
-          Ok(rendered) => rendered,
-          Err(e) => return Err(e),
-      };
+    pub fn render_template<T: Serialize>(&self, name: &str, vars: T) -> Result<String> {
+        if let Some(asset) = Asset::get(format!("{0}.hbr", name).as_str()) {
+            let template = String::from_utf8(asset.data.to_vec())
+                .with_context(|| format!("While converting template {} to UTF-8", name))?;
 
-      let crlf = rendered.replace("\n", "\r\n");
-      let encoded = CP437.encode_lossy(&crlf, 63);
-      let path = dir.join(name.to_uppercase());
+            return Ok(self
+                .render_string(&template, &vars)
+                .with_context(|| format!("While rendirng template {}", name))?);
+        }
 
-      let mut output = match fs::File::create(&path) {
-          Ok(file) => file,
-          Err(e) => return Err(format!("Couldn't create {0}: {1}", path.display(), e)),
-      };
+        return Err(anyhow!("Couldn't find template for {0}", name));
+    }
 
-      match output.write_all(&encoded) {
-          Ok(_) => return Ok(()),
-          Err(e) => {
-              return Err(format!(
-                  "Couldn't write data to {0}: {1}",
-                  path.display(),
-                  e
-              ))
-          }
-      }
-  }
+    pub fn write_dos<T: Serialize>(&self, name: &str, dir: &Path, vars: T) -> Result<()> {
+        let rendered = self.render_template(name, vars)?;
+        let crlf = rendered.replace("\n", "\r\n");
+        let encoded = CP437.encode_lossy(&crlf, 63);
+        let path = dir.join(name.to_uppercase());
+
+        let mut output = fs::File::create(&path)?;
+        output.write_all(&encoded)?;
+
+        return Ok(());
+    }
 }

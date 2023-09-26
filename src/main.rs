@@ -1,22 +1,13 @@
-use clap::{Args, Parser, Subcommand};
+use anyhow::Result;
+use clap::{Args, Parser};
 
 pub mod cfg;
 pub mod door;
 pub mod dos;
 
-//pub mod context;
-//pub mod doorsys;
-//pub mod write_dos;
-
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 #[command(propagate_version = true)]
-struct Cli {
-    #[command(subcommand)]
-    command: Commands,
-}
-
-#[derive(Subcommand, Debug)]
 enum Commands {
     /// Launch a door
     Launch(LaunchArgs),
@@ -26,6 +17,16 @@ enum Commands {
 
     /// Run a door's nighly maintenence
     Nightly(SysopCmdArgs),
+}
+impl Commands {
+    fn run(self) -> Result<()> {
+        let config = cfg::Config::load()?;
+        return match self {
+            Commands::Launch(args) => door::launch(&args, &config),
+            Commands::Configure(args) => door::configure(&args, &config),
+            Commands::Nightly(args) => door::nightly(&args, &config),
+        };
+    }
 }
 
 #[derive(Args, Debug)]
@@ -51,19 +52,9 @@ pub struct SysopCmdArgs {
 }
 
 fn main() {
-    let config = match cfg::Config::load() {
-        Ok(config) => config,
-        Err(e) => {
-            eprintln!("{0}", e);
-            std::process::exit(1);
-        }
-    };
-
-    let cli = Cli::parse();
-
-    match &cli.command {
-        Commands::Launch(args) => door::launch(&args, &config),
-        Commands::Configure(args) => door::configure(&args, &config),
-        Commands::Nightly(args) => door::nightly(&args, &config),
-    };
+    let run = Commands::parse().run();
+    if run.is_err() {
+        eprintln!("ERROR: {0}", run.err().unwrap());
+        std::process::exit(1);
+    }
 }
