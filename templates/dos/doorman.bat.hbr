@@ -1,0 +1,7 @@
+devload /h c:\bin\nansi.sys
+lh fossil
+lredir y: /mnt/doorman
+lredir z: /mnt/door
+z:
+cd \
+{{commands}}

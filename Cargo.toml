@@ -1,0 +1,17 @@
+[package]
+name = "doorman"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+chrono = "0.4.31"
+clap = { version = "4.4.4", features = ["derive"] }
+fs4 = "0.6.6"
+handlebars = "4.4.0"
+pwd = "1.4.0"
+rust-embed = { version = "8.0.0", features = ["interpolate-folder-path"] }
+serde = { version = "1.0.188", features = ["derive"] }
+serde_yaml = "0.9.25"
+yore = "1.1.0"
