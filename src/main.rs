@@ -21,11 +21,11 @@ enum Commands {
 impl Commands {
     fn run(self) -> Result<()> {
         let config = cfg::Config::load()?;
-        return match self {
+        match self {
             Commands::Launch(args) => door::launch(&args, &config),
             Commands::Configure(args) => door::configure(&args, &config),
             Commands::Nightly(args) => door::nightly(&args, &config),
-        };
+        }
     }
 }
 

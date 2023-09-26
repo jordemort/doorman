@@ -25,13 +25,12 @@ struct BatchCommands {
 
 fn get_term() -> String {
     if let Some(envar) = env::var_os("TERM") {
-        let maybe_valid = envar.into_string();
-        if maybe_valid.is_ok() {
-            return maybe_valid.unwrap();
+        if let Ok(envstr) = envar.into_string() {
+            return envstr;
         }
     }
 
-    return String::from("xterm");
+    String::from("xterm")
 }
 
 pub fn launch(args: &LaunchArgs, config: &Config) -> Result<()> {
@@ -186,15 +185,15 @@ pub fn launch(args: &LaunchArgs, config: &Config) -> Result<()> {
         return Err(anyhow!("All nodes for {0} are busy!", args.door));
     }
 
-    return Ok(());
+    Ok(())
 }
 
-pub fn configure(args: &SysopCmdArgs, config: &Config) -> Result<()> {
+pub fn configure(_args: &SysopCmdArgs, _config: &Config) -> Result<()> {
     println!("LOL not implemented yet");
-    return Ok(());
+    Ok(())
 }
 
-pub fn nightly(args: &SysopCmdArgs, config: &Config) -> Result<()> {
+pub fn nightly(_args: &SysopCmdArgs, _config: &Config) -> Result<()> {
     println!("LOL not implemented");
-    return Ok(());
+    Ok(())
 }

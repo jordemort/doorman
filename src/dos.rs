@@ -20,11 +20,11 @@ impl Templates<'_> {
         let mut hbars = Handlebars::new();
         hbars.register_escape_fn(handlebars::no_escape);
 
-        return Templates { hbars };
+        Templates { hbars }
     }
 
-    pub fn render_string<T: Serialize>(&self, template: &String, vars: T) -> Result<String> {
-        return Ok(self.hbars.render_template(template.as_str(), &vars)?);
+    pub fn render_string<T: Serialize>(&self, template: &str, vars: T) -> Result<String> {
+        Ok(self.hbars.render_template(template, &vars)?)
     }
 
     pub fn render_template<T: Serialize>(&self, name: &str, vars: T) -> Result<String> {
@@ -32,23 +32,23 @@ impl Templates<'_> {
             let template = String::from_utf8(asset.data.to_vec())
                 .with_context(|| format!("While converting template {} to UTF-8", name))?;
 
-            return Ok(self
+            return self
                 .render_string(&template, &vars)
-                .with_context(|| format!("While rendirng template {}", name))?);
+                .with_context(|| format!("While rendirng template {}", name));
         }
 
-        return Err(anyhow!("Couldn't find template for {0}", name));
+        Err(anyhow!("Couldn't find template for {0}", name))
     }
 
     pub fn write_dos<T: Serialize>(&self, name: &str, dir: &Path, vars: T) -> Result<()> {
         let rendered = self.render_template(name, vars)?;
-        let crlf = rendered.replace("\n", "\r\n");
+        let crlf = rendered.replace('\n', "\r\n");
         let encoded = CP437.encode_lossy(&crlf, 63);
         let path = dir.join(name.to_uppercase());
 
-        let mut output = fs::File::create(&path)?;
+        let mut output = fs::File::create(path)?;
         output.write_all(&encoded)?;
 
-        return Ok(());
+        Ok(())
     }
 }

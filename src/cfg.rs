@@ -26,7 +26,7 @@ pub struct Options {
 }
 
 fn default_door_nodes() -> i8 {
-    return 1;
+    1
 }
 
 #[derive(Deserialize, Debug)]
@@ -56,7 +56,7 @@ impl Config {
             };
         }
 
-        return Ok(DEFAULT_CONFIG.to_string());
+        Ok(DEFAULT_CONFIG.to_string())
     }
 
     pub fn load() -> Result<Config> {
@@ -68,7 +68,7 @@ impl Config {
         let config: Config = serde_yaml::from_reader(config_file)
             .with_context(|| format!("Couldn't open parse file {}", config_path))?;
 
-        return Ok(config);
+        Ok(config)
     }
 
     fn make_display_name(pwent: &Passwd) -> String {
@@ -78,32 +78,32 @@ impl Config {
             }
         }
 
-        return pwent.name.clone();
+        pwent.name.clone()
     }
 
     fn pwent_to_user(&self, pwent: &Passwd) -> User {
-        let display_name = Config::make_display_name(&pwent);
+        let display_name = Config::make_display_name(pwent);
 
-        return User {
+        User {
             uid: pwent.uid,
             username: pwent.name.clone(),
             display_name,
             is_sysop: self.doorman.sysops.contains(&pwent.name),
-        };
+        }
     }
 
     pub fn get_current_user(&self) -> Result<User> {
         let pwent = Passwd::current_user().with_context(|| "Couldn't lookup current user")?;
-        return Ok(self.pwent_to_user(&pwent));
+        Ok(self.pwent_to_user(&pwent))
     }
 
     pub fn get_user(&self, username: &String) -> Result<User> {
-        if let Some(pwent) = Passwd::from_name(&username)
+        if let Some(pwent) = Passwd::from_name(username)
             .with_context(|| format!("Couldn't lookup user {}", username))?
         {
             return Ok(self.pwent_to_user(&pwent));
         }
-        return Err(anyhow!("No such user: {}", username));
+        Err(anyhow!("No such user: {}", username))
     }
 
     pub fn get_door(&self, door_name: &String) -> Result<&Door> {
@@ -111,6 +111,6 @@ impl Config {
             return Ok(door);
         }
 
-        return Err(anyhow!("Unknown door: {}", door_name));
+        Err(anyhow!("Unknown door: {}", door_name))
     }
 }
