@@ -1,4 +1,4 @@
-use super::cfg::{Config, User};
+use super::cfg::{Config, Door, User};
 use super::dos::Templates;
 use super::{LaunchArgs, SysopCmdArgs};
 
@@ -33,6 +33,16 @@ fn get_term() -> String {
     String::from("xterm")
 }
 
+fn make_lockfile(path: &Path) -> Result<fs::File> {
+    fs::File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)
+        .with_context(|| format!("Couldn't open lockfile {}", path.display()))
+}
+
 pub fn launch(args: &LaunchArgs, config: &Config) -> Result<()> {
     let door = config.get_door(&args.door)?;
     let mut user = config.get_current_user()?;
@@ -49,19 +59,8 @@ pub fn launch(args: &LaunchArgs, config: &Config) -> Result<()> {
     fs::create_dir_all(rundir)
         .with_context(|| format!("Couldn't create rundir {}", rundir.display()))?;
 
-    let door_lockfile_path = rundir.join(format!("{0}.lock", args.door));
-    let door_lockfile = fs::File::options()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(&door_lockfile_path)
-        .with_context(|| {
-            format!(
-                "Couldn't open door lockfile {}",
-                door_lockfile_path.display()
-            )
-        })?;
+    let door_lockfile_path = rundir.join(format!("{}.lock", args.door));
+    let door_lockfile = make_lockfile(&door_lockfile_path).with_context(|| "While locking door")?;
 
     if door_lockfile.try_lock_shared().is_err() {
         return Err(anyhow!(
@@ -75,18 +74,8 @@ pub fn launch(args: &LaunchArgs, config: &Config) -> Result<()> {
 
     while (node <= door.nodes) && !found_node {
         let node_lockfile_path = rundir.join(format!("{0}.{1}.lock", args.door, node));
-        let node_lockfile = fs::File::options()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&node_lockfile_path)
-            .with_context(|| {
-                format!(
-                    "Couldn't open node lockfile {}",
-                    node_lockfile_path.display()
-                )
-            })?;
+        let node_lockfile =
+            make_lockfile(&node_lockfile_path).with_context(|| "While locking node")?;
 
         if node_lockfile.try_lock_exclusive().is_err() {
             node += 1;
@@ -127,21 +116,16 @@ pub fn launch(args: &LaunchArgs, config: &Config) -> Result<()> {
         let run = Command::new("docker")
             .arg("run")
             .arg("-d")
-            .arg("-p5901:5901")
             .arg(format!("-v{0}:/mnt/doorman", node_rundir.display()))
             .arg(format!("-v{0}:/mnt/door", door.path))
             .arg(format!("-eTERM={0}", get_term()))
-            .arg(format!("-eDOORMAN_DOOR={0}", args.door))
-            .arg(format!("-eDOORMAN_USER={0}", user.username))
-            .arg(format!("-eDOORMAN_UID={0}", user.uid))
-            .arg(format!(
-                "-eDOORMAN_SYSOP={0}",
-                if user.is_sysop { "1" } else { "0" }
-            ))
             .arg(format!(
                 "-eDOORMAN_RAW={0}",
                 if args.raw { "1" } else { "0" }
             ))
+            .arg(format!("--label=doorman.door={0}", args.door))
+            .arg(format!("--label=doorman.node={0}", node))
+            .arg(format!("--label=doorman.user={0}", user.username))
             .arg(config.doorman.dosemu_container.as_str())
             .arg("wait-for-launch.sh")
             .stdout(Stdio::piped())
@@ -188,12 +172,86 @@ pub fn launch(args: &LaunchArgs, config: &Config) -> Result<()> {
     Ok(())
 }
 
-pub fn configure(_args: &SysopCmdArgs, _config: &Config) -> Result<()> {
-    println!("LOL not implemented yet");
-    Ok(())
+pub fn configure(args: &SysopCmdArgs, config: &Config) -> Result<()> {
+    let door = config.get_door(&args.door)?;
+    sysop_command(args, config, door, "configure", &door.configure)
 }
 
-pub fn nightly(_args: &SysopCmdArgs, _config: &Config) -> Result<()> {
-    println!("LOL not implemented");
+pub fn nightly(args: &SysopCmdArgs, config: &Config) -> Result<()> {
+    let door = config.get_door(&args.door)?;
+    sysop_command(args, config, door, "nightly", &door.nightly)
+}
+
+fn sysop_command(
+    args: &SysopCmdArgs,
+    config: &Config,
+    door: &Door,
+    command: &str,
+    template: &Option<String>,
+) -> Result<()> {
+    let user = config.get_current_user()?;
+
+    if !user.is_sysop {
+        return Err(anyhow!("This command is only for sysops!"));
+    }
+
+    if template.is_none() {
+        return Err(anyhow!(
+            "No {} command configured for {}!",
+            command,
+            args.door
+        ));
+    }
+
+    let rundir = Path::new(&config.doorman.rundir);
+    let door_lockfile_path = rundir.join(format!("{}.lock", args.door));
+    let door_lockfile = make_lockfile(&door_lockfile_path)?;
+
+    if args.nowait {
+        if door_lockfile.try_lock_exclusive().is_err() {
+            return Err(anyhow!(
+                "Sorry, I couldn't lock the door '{}' exclusively.",
+                args.door
+            ));
+        }
+    } else {
+        door_lockfile.lock_exclusive()?;
+    }
+
+    let sysop_rundir = rundir.join(format!("{}.sysop", args.door));
+
+    if sysop_rundir.exists() {
+        fs::remove_dir_all(&sysop_rundir).with_context(|| {
+            format!("Couldn't clean up sysop rundir {}", sysop_rundir.display())
+        })?;
+    }
+
+    fs::create_dir_all(&sysop_rundir)
+        .with_context(|| format!("Couldn't create sysop rundir {}", sysop_rundir.display()))?;
+
+    let templates = Templates::new();
+    let commands = BatchCommands {
+        commands: template.clone().unwrap(),
+    };
+
+    templates.write_dos("doorman.bat", &sysop_rundir, commands)?;
+
+    Command::new("docker")
+        .arg("run")
+        .arg("-ti")
+        .arg(format!("-v{0}:/mnt/doorman", sysop_rundir.display()))
+        .arg(format!("-v{0}:/mnt/door", door.path))
+        .arg(format!("-eTERM={0}", get_term()))
+        .arg(format!("--label=doorman.door={0}", args.door))
+        .arg(format!("--label=doorman.node={0}", command))
+        .arg(format!("--label=doorman.user={0}", user.username))
+        .arg(config.doorman.dosemu_container.as_str())
+        .arg("dosemu")
+        .arg("-t")
+        .arg("/mnt/doorman/DOORMAN.BAT")
+        .spawn()
+        .with_context(|| format!("While starting container for door '{}'", args.door))?
+        .wait()?;
+
     Ok(())
 }
