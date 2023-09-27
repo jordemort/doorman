@@ -104,6 +104,7 @@ impl Config {
         {
             return Ok(self.pwent_to_user(&pwent));
         }
+
         Err(anyhow!("No such user: {}", username))
     }
 
