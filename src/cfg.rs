@@ -47,13 +47,14 @@ pub struct Config {
 impl Config {
     fn config_path() -> Result<String> {
         if let Some(env_path) = env::var_os(CONFIG_ENV) {
-            return match env_path.into_string() {
-                Ok(value) => Ok(value),
-                Err(_) => Err(anyhow!(
+            if let Ok(env_path) = env_path.into_string() {
+                return Ok(env_path);
+            } else {
+                return Err(anyhow!(
                     "Couldn't decode {}, is there garbage in your environment?",
                     CONFIG_ENV
-                )),
-            };
+                ));
+            }
         }
 
         Ok(DEFAULT_CONFIG.to_string())
