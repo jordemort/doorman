@@ -118,6 +118,14 @@ pub fn launch(args: &LaunchArgs, config: &Config) -> Result<()> {
             .arg("-d")
             .arg(format!("-v{0}:/mnt/doorman", node_rundir.display()))
             .arg(format!("-v{0}:/mnt/door", door.path))
+            .arg(format!(
+                "-v{0}:/mnt/door.lock",
+                door_lockfile_path.display()
+            ))
+            .arg(format!(
+                "-v{0}:/mnt/node.lock",
+                node_lockfile_path.display()
+            ))
             .arg(format!("-eTERM={0}", get_term()))
             .arg(format!(
                 "-eDOORMAN_RAW={0}",
@@ -155,6 +163,8 @@ pub fn launch(args: &LaunchArgs, config: &Config) -> Result<()> {
             String::from_utf8(run_output.stdout).with_context(|| "While decoding container ID")?;
 
         println!("Container ID = {0}", container_id.trim());
+
+        node_lockfile.unlock()?;
 
         Command::new("docker")
             .arg("exec")
@@ -236,22 +246,28 @@ fn sysop_command(
 
     templates.write_dos("doorman.bat", &sysop_rundir, commands)?;
 
-    Command::new("docker")
+    let mut run = Command::new("docker")
         .arg("run")
         .arg("-ti")
         .arg(format!("-v{0}:/mnt/doorman", sysop_rundir.display()))
         .arg(format!("-v{0}:/mnt/door", door.path))
+        .arg(format!(
+            "-v{0}:/mnt/door.lock",
+            door_lockfile_path.display()
+        ))
         .arg(format!("-eTERM={0}", get_term()))
         .arg(format!("--label=doorman.door={0}", args.door))
         .arg(format!("--label=doorman.node={0}", command))
         .arg(format!("--label=doorman.user={0}", user.username))
         .arg(config.doorman.dosemu_container.as_str())
-        .arg("dosemu")
-        .arg("-t")
-        .arg("/mnt/doorman/DOORMAN.BAT")
+        .arg(format!("{}.sh", command))
         .spawn()
-        .with_context(|| format!("While starting container for door '{}'", args.door))?
-        .wait()?;
+        .with_context(|| format!("While spawning container for door '{}'", args.door))?;
+
+    door_lockfile.unlock()?;
+
+    run.wait()
+        .with_context(|| format!("While waiting for container for door '{}'", args.door))?;
 
     Ok(())
 }
