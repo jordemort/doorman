@@ -6,9 +6,10 @@ use anyhow::{anyhow, Context, Result};
 use chrono::Local;
 use fs4::FileExt;
 use serde::Serialize;
+use std::collections::HashMap;
 use std::env;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 #[derive(Serialize, Debug)]
@@ -54,7 +55,8 @@ pub fn launch(args: &LaunchArgs, config: &Config) -> Result<()> {
         user = config.get_user(&switch_user)?;
     }
 
-    let rundir = Path::new(&config.doorman.rundir);
+    let rundir = &config.doorman.rundir;
+    let container_engine = config.container_engine()?;
 
     fs::create_dir_all(rundir)
         .with_context(|| format!("Couldn't create rundir {}", rundir.display()))?;
@@ -113,29 +115,32 @@ pub fn launch(args: &LaunchArgs, config: &Config) -> Result<()> {
 
         templates.write_dos("doorman.bat", &node_rundir, &commands)?;
 
-        let run = Command::new("docker")
-            .arg("run")
+        let env = HashMap::from([
+            ("TERM", get_term()),
+            ("DOORMAN_RAW", if args.raw { "1".to_string() } else { "0".to_string() }),
+        ]);
+
+        let volumes = HashMap::from([
+            (node_rundir.clone(), PathBuf::from("/mnt/doorman")),
+            (door.path.clone(), PathBuf::from("/mnt/door")),
+            (door_lockfile_path.clone(), PathBuf::from("/mnt/door.lock")),
+            (node_lockfile_path, PathBuf::from("/mnt/node.lock")),
+        ]);
+
+        let labels = HashMap::from([
+            ("doorman.door", args.door.clone()),
+            ("doorman.node", format!("{}", node)),
+            (
+                "doorman.rundir",
+                format!("{}", node_rundir.clone().display()),
+            ),
+            ("doorman.user", user.username.clone()),
+        ]);
+
+        let run = container_engine
+            .run(&env, &volumes, &labels)
             .arg("-d")
-            .arg(format!("-v{0}:/mnt/doorman", node_rundir.display()))
-            .arg(format!("-v{0}:/mnt/door", door.path))
-            .arg(format!(
-                "-v{0}:/mnt/door.lock",
-                door_lockfile_path.display()
-            ))
-            .arg(format!(
-                "-v{0}:/mnt/node.lock",
-                node_lockfile_path.display()
-            ))
-            .arg(format!("-eTERM={0}", get_term()))
-            .arg(format!(
-                "-eDOORMAN_RAW={0}",
-                if args.raw { "1" } else { "0" }
-            ))
-            .arg(format!("--label=doorman.door={0}", args.door))
-            .arg(format!("--label=doorman.node={0}", node))
-            .arg(format!("--label=doorman.rundir={0}", node_rundir.display()))
-            .arg(format!("--label=doorman.user={0}", user.username))
-            .arg(config.doorman.dosemu_container.as_str())
+            .arg(&config.doorman.dosemu_container)
             .arg("wait-for-launch.sh")
             .stdout(Stdio::piped())
             .spawn()
@@ -167,7 +172,7 @@ pub fn launch(args: &LaunchArgs, config: &Config) -> Result<()> {
 
         node_lockfile.unlock()?;
 
-        Command::new("docker")
+        Command::new(&container_engine.path)
             .arg("exec")
             .arg("-ti")
             .arg(container_id.trim())
@@ -214,7 +219,12 @@ fn sysop_command(
         ));
     }
 
-    let rundir = Path::new(&config.doorman.rundir);
+    let rundir = &config.doorman.rundir;
+    let container_engine = config.container_engine()?;
+
+    fs::create_dir_all(rundir)
+        .with_context(|| format!("Couldn't create rundir {}", rundir.display()))?;
+
     let door_lockfile_path = rundir.join(format!("{}.lock", args.door));
     let door_lockfile = make_lockfile(&door_lockfile_path)?;
 
@@ -247,21 +257,28 @@ fn sysop_command(
 
     templates.write_dos("doorman.bat", &sysop_rundir, commands)?;
 
-    let mut run = Command::new("docker")
-        .arg("run")
+    let env = HashMap::from([("TERM", get_term())]);
+
+    let volumes = HashMap::from([
+        (sysop_rundir.clone(), PathBuf::from("/mnt/doorman")),
+        (door.path.clone(), PathBuf::from("/mnt/door")),
+        (door_lockfile_path, PathBuf::from("/mnt/door.lock")),
+    ]);
+
+    let labels = HashMap::from([
+        ("doorman.door", args.door.clone()),
+        ("doorman.command", command.to_string()),
+        (
+            "doorman.rundir",
+            format!("{}", sysop_rundir.clone().display()),
+        ),
+        ("doorman.user", user.username),
+    ]);
+
+    let mut run = container_engine
+        .run(&env, &volumes, &labels)
         .arg("-ti")
-        .arg(format!("-v{0}:/mnt/doorman", sysop_rundir.display()))
-        .arg(format!("-v{0}:/mnt/door", door.path))
-        .arg(format!(
-            "-v{0}:/mnt/door.lock",
-            door_lockfile_path.display()
-        ))
-        .arg(format!("-eTERM={0}", get_term()))
-        .arg(format!("--label=doorman.door={0}", args.door))
-        .arg(format!("--label=doorman.node={0}", command))
-        .arg(format!("--label=doorman.rundir={0}", sysop_rundir.display()))
-        .arg(format!("--label=doorman.user={0}", user.username))
-        .arg(config.doorman.dosemu_container.as_str())
+        .arg(&config.doorman.dosemu_container)
         .arg(format!("{}.sh", command))
         .spawn()
         .with_context(|| format!("While spawning container for door '{}'", args.door))?;

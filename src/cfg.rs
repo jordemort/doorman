@@ -1,9 +1,12 @@
+use super::container::ContainerEngine;
 use anyhow::{anyhow, Context, Result};
 use pwd::Passwd;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::env;
 use std::fs::File;
+use std::path::PathBuf;
+use which::which;
 
 const CONFIG_ENV: &str = "DOORMAN_CONFIG";
 const DEFAULT_CONFIG: &str = "/etc/doorman.yml";
@@ -17,11 +20,19 @@ pub struct User {
 }
 impl User {}
 
+fn default_dosemu_container() -> String {
+    String::from("ghcr.io/jordemort/doorman-dosemu:main")
+}
+
 #[derive(Deserialize, Debug)]
 pub struct Options {
     pub user: String,
+
+    #[serde(default = "default_dosemu_container")]
     pub dosemu_container: String,
-    pub rundir: String,
+
+    pub container_engine: Option<PathBuf>,
+    pub rundir: PathBuf,
     pub sysops: Vec<String>,
 }
 
@@ -31,9 +42,11 @@ fn default_door_nodes() -> i8 {
 
 #[derive(Deserialize, Debug)]
 pub struct Door {
-    pub path: String,
+    pub path: PathBuf,
+
     #[serde(default = "default_door_nodes")]
     pub nodes: i8,
+
     pub launch: String,
     pub configure: Option<String>,
     pub nightly: Option<String>,
@@ -114,5 +127,24 @@ impl Config {
         }
 
         Err(anyhow!("Unknown door: {}", door_name))
+    }
+
+    pub fn container_engine_path(&self) -> Result<PathBuf> {
+        if let Some(container_engine) = self.doorman.container_engine.clone() {
+            Ok(container_engine)
+        } else if let Ok(podman) = which("podman") {
+            Ok(podman)
+        } else if let Ok(docker) = which("docker") {
+            Ok(docker)
+        } else {
+            Err(anyhow!("Couldn't find podman or docker in PATH. Do you need to set `doorman.container_engine` in your config?"))
+        }
+    }
+
+    pub fn container_engine(&self) -> Result<ContainerEngine> {
+        let engine_path = self.container_engine_path()?;
+        let engine = ContainerEngine::new(&engine_path)?;
+
+        Ok(engine)
     }
 }

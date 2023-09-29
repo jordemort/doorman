@@ -1,9 +1,11 @@
 use anyhow::Result;
-use clap::{Args, Parser};
+use clap::{Args, Parser, ValueEnum};
 
 pub mod cfg;
+pub mod container;
 pub mod door;
 pub mod dos;
+pub mod who;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -17,6 +19,9 @@ enum Commands {
 
     /// Run a door's nighly maintenence
     Nightly(SysopCmdArgs),
+
+    /// Show who's playing what
+    Who(WhoArgs),
 }
 impl Commands {
     fn run(self) -> Result<()> {
@@ -25,6 +30,7 @@ impl Commands {
             Commands::Launch(args) => door::launch(&args, &config),
             Commands::Configure(args) => door::configure(&args, &config),
             Commands::Nightly(args) => door::nightly(&args, &config),
+            Commands::Who(args) => who::who_command(&args, &config),
         }
     }
 }
@@ -51,10 +57,23 @@ pub struct SysopCmdArgs {
     nowait: bool,
 }
 
-fn main() {
-    let run = Commands::parse().run();
-    if run.is_err() {
-        eprintln!("ERROR: {0}", run.err().unwrap());
-        std::process::exit(1);
-    }
+#[derive(ValueEnum, Clone, Debug)]
+#[value(rename_all = "lower")]
+enum OutputFormat {
+    JSON,
+    YAML,
+}
+
+#[derive(Args, Debug)]
+pub struct WhoArgs {
+    /// (optional) Only show people playing DOOR
+    door: Option<String>,
+
+    #[arg(short, long)]
+    /// Output format
+    format: Option<OutputFormat>,
+}
+
+fn main() -> Result<()> {
+    Commands::parse().run()
 }
