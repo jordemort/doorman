@@ -1,4 +1,4 @@
-use super::cfg::Config;
+use super::config;
 use super::{OutputFormat, WhoArgs};
 use anyhow::{anyhow, Result};
 use chrono::serde::ts_seconds;
@@ -10,8 +10,6 @@ use comfy_table::{Cell, Table};
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::path::PathBuf;
-use std::process::Command;
 
 #[derive(Deserialize, Debug)]
 struct DockerPS {
@@ -151,8 +149,8 @@ fn parse_ps(output: &str) -> Vec<WhoNode> {
     }
 }
 
-fn who(container_engine: &PathBuf, door: &Option<String>) -> Result<Vec<WhoNode>> {
-    let mut ps = Command::new(container_engine);
+fn who(door: &Option<String>, config: &config::Config) -> Result<Vec<WhoNode>> {
+    let mut ps = config.container_command("ps");
 
     ps.arg("ps")
         .arg("--format=json")
@@ -166,10 +164,17 @@ fn who(container_engine: &PathBuf, door: &Option<String>) -> Result<Vec<WhoNode>
 
     if let Some(code) = output.status.code() {
         if code != 0 {
-            return Err(anyhow!("'docker ps' exited with non-zero status: {}", code));
+            return Err(anyhow!(
+                "'{} ps' exited with non-zero status: {}",
+                ps.get_program().to_string_lossy(),
+                code
+            ));
         }
     } else {
-        return Err(anyhow!("'docker ps' exited with unknown status"));
+        return Err(anyhow!(
+            "'{} ps' exited with unknown status",
+            ps.get_program().to_string_lossy()
+        ));
     }
 
     let stdout = String::from_utf8(output.stdout)?;
@@ -228,9 +233,8 @@ fn print_who(format: &Option<OutputFormat>, nodes: &Vec<WhoNode>) -> Result<()> 
     Ok(())
 }
 
-pub fn who_command(args: &WhoArgs, config: &Config) -> Result<()> {
-    let container_engine = config.container_engine()?;
-    let nodes = who(&container_engine.path, &args.door)?;
+pub fn who_command(args: &WhoArgs, config: &config::Config) -> Result<()> {
+    let nodes = who(&args.door, config)?;
 
     print_who(&args.format, &nodes)?;
 

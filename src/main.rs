@@ -1,10 +1,13 @@
 use anyhow::Result;
 use clap::{Args, Parser, ValueEnum};
+//use nix::unistd;
 
-pub mod cfg;
+pub mod config;
 pub mod container;
 pub mod door;
 pub mod dos;
+pub mod setuid;
+pub mod user;
 pub mod who;
 
 #[derive(Parser, Debug)]
@@ -25,9 +28,10 @@ enum Commands {
 }
 impl Commands {
     fn run(self) -> Result<()> {
-        let config = cfg::Config::load()?;
+        let config = config::Config::load(None)?;
+
         match self {
-            Commands::Launch(args) => door::launch(&args, &config),
+            Commands::Launch(args) => door::launch(&args, config),
             Commands::Configure(args) => door::configure(&args, &config),
             Commands::Nightly(args) => door::nightly(&args, &config),
             Commands::Who(args) => who::who_command(&args, &config),
@@ -40,8 +44,16 @@ pub struct LaunchArgs {
     door: String,
 
     #[arg(short, long, value_name = "USERNAME")]
-    /// User to run the door as
+    /// (SYSOP ONLY) User to run the door as
     user: Option<String>,
+
+    #[arg(short = 'U', long, value_name = "UID")]
+    /// (SYSOP ONLY) User ID to run the door as
+    user_id: Option<u32>,
+
+    #[arg(short, long, value_name = "\"Joan Q. Public\"")]
+    /// (SYSOP ONLY) Display name of user to run the door as
+    display_name: Option<String>,
 
     #[arg(short, long)]
     /// Don't translate from ANSI+CP437
