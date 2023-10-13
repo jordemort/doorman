@@ -1,0 +1,51 @@
+COM1:
+{{#if baud_rate}}{{baud_rate}}{{else}}19200{{/if}}
+8
+1
+{{#if baud_rate}}{{baud_rate}}{{else}}19200{{/if}}
+Y
+Y
+Y
+Y
+{{user.username}}
+The Internet
+127.0.0.1
+127.0.0.1
+hunter2
+100
+{{#if times_on}}{{times_on}}{{else}}1{{/if}}
+{{#if last_called}}{{last_called}}{{else}}08/01/95{{/if}}
+59
+86400
+GR
+{{#if page_length}}{{page_length}}{{else}}23{{/if}}
+N
+1
+1
+03/03/33
+{{user.uid}}
+Z
+0
+0
+0
+0
+{{#if birthday}}{{birthday}}{{else}}08/25/54{{/if}}
+G:\GAP\MAIN
+G:\GAP\GEN
+{{#if sysop_name}}{{sysop_name}}{{else}}The Doorman Cabal{{/if}}
+{{user.username}}
+{{current_time}}
+Y
+N
+Y
+{{#if bbs_default_color}}{{bbs_default_color}}{{else}}9{{/if}}
+8000
+01/01/95
+{{current_time}}
+8000
+0
+0
+0
+{{user.display_name}}
+1
+0
