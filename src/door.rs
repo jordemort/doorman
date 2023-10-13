@@ -3,7 +3,7 @@ use super::config;
 use super::dos::Templates;
 use super::user::User;
 use super::{LaunchArgs, SysopCmdArgs};
-
+use log::debug;
 use anyhow::{anyhow, Context, Result};
 use chrono::Local;
 use fs4::FileExt;
@@ -176,7 +176,7 @@ pub fn launch(args: &LaunchArgs, mut config: config::Config) -> Result<()> {
     let container_id =
         String::from_utf8(run_output.stdout).with_context(|| "While decoding container ID")?;
 
-    println!("Container ID = {0}", container_id.trim());
+    debug!("Container ID: {0}", container_id.trim());
 
     node_lockfile.unlock()?;
 

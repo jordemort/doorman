@@ -1,6 +1,8 @@
 use anyhow::{anyhow, Result};
+use log::info;
 use nix::unistd;
 use serde::Serialize;
+use std::env;
 
 #[derive(Serialize, Debug, Clone)]
 pub struct User {
@@ -41,5 +43,18 @@ impl User {
     pub fn from_current_uid() -> Result<User> {
         let uid = unistd::getuid();
         User::from_uid(uid)
+    }
+
+    pub fn calling_user() -> Result<User> {
+        if let Ok(sudo_user) = env::var("SUDO_USER") {
+            info!("Using username '{}' from SUDO_USER", sudo_user);
+            User::from_username(&sudo_user)
+        } else if let Ok(doas_user) = env::var("DOAS_USER") {
+            info!("Using username '{}' from DOAS_USER", doas_user);
+            User::from_username(&doas_user)
+        } else {
+            info!("Did not detect sudo or doas, making user from current UID");
+            User::from_current_uid()
+        }
     }
 }

@@ -1,12 +1,10 @@
 use anyhow::Result;
 use clap::{Args, Parser, ValueEnum};
-//use nix::unistd;
 
 pub mod config;
 pub mod container;
 pub mod door;
 pub mod dos;
-pub mod setuid;
 pub mod user;
 pub mod who;
 
@@ -28,7 +26,7 @@ enum Commands {
 }
 impl Commands {
     fn run(self) -> Result<()> {
-        let config = config::Config::load(None)?;
+        let config = config::Config::load()?;
 
         match self {
             Commands::Launch(args) => door::launch(&args, config),
@@ -87,5 +85,6 @@ pub struct WhoArgs {
 }
 
 fn main() -> Result<()> {
+    env_logger::init();
     Commands::parse().run()
 }

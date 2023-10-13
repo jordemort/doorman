@@ -1,18 +1,15 @@
 use super::container::ContainerEngine;
-use super::setuid;
 use super::user;
 use anyhow::anyhow;
 use anyhow::{Context, Result};
 use directories::ProjectDirs;
+use log::{info, debug};
 use nix::unistd;
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::env;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
-
-const CONFIG_ENV: &str = "DOORMAN_CONFIG";
 
 #[derive(Deserialize, Debug)]
 struct DoormanOptions {
@@ -23,10 +20,10 @@ struct DoormanOptions {
     rundir: Option<PathBuf>,
 
     /// List of users that should be considered sysops
-    sysops: Vec<String>,
+    sysops: Option<Vec<String>>,
 }
 
-fn default_dosemu_container() -> String {
+fn default_dosemu_image() -> String {
     String::from("ghcr.io/jordemort/doorman-dosemu:main")
 }
 
@@ -38,7 +35,7 @@ struct ContainerOptions {
     /// Set to true if you're using rootless podman
     rootless_podman: Option<bool>,
 
-    #[serde(default = "default_dosemu_container")]
+    #[serde(default = "default_dosemu_image")]
     /// Container image with dosemu; defaults to ghcr.io/jordemort/doorman-dosemu:main
     dosemu_image: String,
 }
@@ -76,10 +73,10 @@ pub struct Door {
 #[derive(Deserialize, Debug)]
 struct ConfigFile {
     /// Options relating to doorman itself
-    doorman: DoormanOptions,
+    doorman: Option<DoormanOptions>,
 
     /// Options relating to how doorman runs containers
-    container: ContainerOptions,
+    container: Option<ContainerOptions>,
 
     /// Door definitions
     doors: HashMap<String, DoorOptions>,
@@ -109,24 +106,22 @@ pub struct Config {
     engine: ContainerEngine,
 }
 impl Config {
-    pub fn load(config_path: Option<PathBuf>) -> Result<Config> {
-        let user = user::User::from_current_uid()?;
+    pub fn load() -> Result<Config> {
+        let user = user::User::calling_user()?;
 
-        setuid::setuid()?;
+        info!("Running as user '{}' with UID {}", user.username, user.uid);
 
         let project_dirs = ProjectDirs::from("dev", "jordemort", "doorman").unwrap();
-
-        let config_path = config_path.unwrap_or_else(|| {
-            env::var(CONFIG_ENV).map_or_else(
-                |_| project_dirs.config_dir().join("doorman.yml"),
-                |env_var| PathBuf::from(env_var),
-            )
-        });
-
+        let config_path = project_dirs.config_dir().join("doorman.yml");
         let config = ConfigFile::from_path(&config_path)?;
 
-        let datadir = config
-            .doorman
+        let doorman = config.doorman.unwrap_or_else(|| DoormanOptions {
+            datadir: None,
+            rundir: None,
+            sysops: None,
+        });
+
+        let datadir = doorman
             .datadir
             .unwrap_or(PathBuf::from(project_dirs.data_dir()));
 
@@ -135,7 +130,7 @@ impl Config {
                 .with_context(|| format!("Couldn't create datadir: {}", datadir.display()))?;
         }
 
-        let rundir = config.doorman.rundir.unwrap_or(
+        let rundir = doorman.rundir.unwrap_or(
             project_dirs
                 .runtime_dir()
                 .map_or(datadir.join("run"), |rundir| PathBuf::from(rundir)),
@@ -146,19 +141,22 @@ impl Config {
                 .with_context(|| format!("Couldn't create rundir: {}", rundir.display()))?;
         }
 
-        let engine = ContainerEngine::new(
-            &config.container.engine_path,
-            &config.container.rootless_podman,
-        )?;
+        let container = config.container.unwrap_or_else(|| ContainerOptions {
+            engine_path: None,
+            rootless_podman: None,
+            dosemu_image: default_dosemu_image(),
+        });
+
+        let engine = ContainerEngine::new(&container.engine_path, &container.rootless_podman)?;
 
         Ok(Config {
             datadir,
             rundir,
             user,
-            dosemu_image: config.container.dosemu_image,
+            dosemu_image: container.dosemu_image,
             uid: unistd::getuid(),
             gid: unistd::getgid(),
-            sysops: config.doorman.sysops,
+            sysops: doorman.sysops.unwrap_or(vec![]),
             doors: config.doors,
             engine,
         })
@@ -177,7 +175,7 @@ impl Config {
     }
 
     pub fn is_sysop(&self) -> bool {
-        if self.user.uid == self.uid.as_raw() {
+        if self.user.uid == self.uid.as_raw() || self.user.uid == 0 {
             true
         } else {
             self.sysops.contains(&self.user.username)
@@ -256,20 +254,13 @@ impl Config {
             args.push("--passwd=false".to_string());
         }
 
+        debug!("Container run args: {:?}", args);
+
         args
     }
 
     pub fn container_command(&self, command: &str) -> Command {
         let mut cmd = Command::new(&self.engine.path);
-
-        if self.engine.rootless_podman {
-            cmd.arg(format!("--root={}", self.rundir.join("podman").display()));
-            cmd.arg(format!(
-                "--runroot={}",
-                self.rundir.join("podman-run").display()
-            ));
-            cmd.arg("--cgroup-manager=cgroupfs");
-        }
 
         cmd.arg(command);
         cmd
